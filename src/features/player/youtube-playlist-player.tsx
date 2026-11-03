@@ -69,7 +69,7 @@ function formatTime(value: number) {
   return `${minutes}:${seconds}`;
 }
 
-export function YouTubePlaylistPlayer({ roomId, participantId }: { roomId: string; participantId: string }) {
+export function YouTubePlaylistPlayer({ roomId, participantId, isHost }: { roomId: string; participantId: string; isHost: boolean }) {
   const playerHost = useRef<HTMLDivElement>(null);
   const player = useRef<PlayerInstance | null>(null);
   const [items, setItems] = useState<PlaylistItem[]>([]);
@@ -98,12 +98,12 @@ export function YouTubePlaylistPlayer({ roomId, participantId }: { roomId: strin
   }), []);
 
   const publishCurrentPlayback = useCallback((instance = player.current) => {
-    if (!isReadablePlayer(instance) || !initialPlaybackApplied.current || remoteApplying.current) return;
+    if (!isHost || !isReadablePlayer(instance) || !initialPlaybackApplied.current || remoteApplying.current) return;
     lastPublishedAt.current = Date.now();
     void publishPlayback(roomId, participantId, readPlayback(instance), latestPlayback.current)
       .then(() => setSyncError(null))
       .catch((cause) => { setSyncError(cause instanceof Error ? cause.message : "Could not sync playback."); });
-  }, [participantId, readPlayback, roomId]);
+  }, [isHost, participantId, readPlayback, roomId]);
 
   useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
   useEffect(() => { publishRef.current = publishCurrentPlayback; }, [publishCurrentPlayback]);
@@ -164,10 +164,10 @@ export function YouTubePlaylistPlayer({ roomId, participantId }: { roomId: strin
     const timer = window.setInterval(() => {
       if (!player.current) return;
       syncPlayerState(player.current);
-      if (initialPlaybackApplied.current && isPlayingRef.current && Date.now() - lastPublishedAt.current >= 5000) publishRef.current(player.current);
+      if (isHost && initialPlaybackApplied.current && isPlayingRef.current && Date.now() - lastPublishedAt.current >= 5000) publishRef.current(player.current);
     }, 500);
     return () => { cancelled = true; window.clearInterval(timer); player.current?.destroy(); player.current = null; };
-  }, []);
+  }, [isHost]);
 
   const progressPercent = duration ? Math.min((progress / duration) * 100, 100) : 0;
   const thumbnail = activeTrack ? `https://i.ytimg.com/vi/${activeTrack.id}/hqdefault.jpg` : undefined;
@@ -178,14 +178,15 @@ export function YouTubePlaylistPlayer({ roomId, participantId }: { roomId: strin
       <div className="max-h-[15rem] overflow-y-auto p-2">
         {isLoading && <div className="flex items-center gap-3 px-3 py-8 text-sm text-muted-foreground"><LoaderCircle className="animate-spin text-primary" size={18} /> Loading playlist…</div>}
         {!isLoading && items.length === 0 && <div className="px-3 py-8 text-sm leading-6 text-muted-foreground">YouTube could not expose this playlist’s queue. Use the player controls below to start listening.</div>}
-        {items.map((item, index) => <button key={item.id} onClick={() => { player.current?.playVideoAt(index); setActiveIndex(index); window.setTimeout(() => publishCurrentPlayback(), 150); }} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${index === activeIndex ? "bg-accent" : "hover:bg-muted"}`}><span className={`grid size-7 shrink-0 place-items-center rounded-lg text-xs ${index === activeIndex ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>{index === activeIndex && isPlaying ? <Music2 size={13} /> : index + 1}</span><span className="min-w-0"><span className="block truncate text-sm font-medium">{item.title}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.artist}</span></span></button>)}
+        {items.map((item, index) => <button key={item.id} disabled={!isHost} onClick={() => { player.current?.playVideoAt(index); setActiveIndex(index); window.setTimeout(() => publishCurrentPlayback(), 150); }} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${index === activeIndex ? "bg-accent" : "hover:bg-muted"}`}><span className={`grid size-7 shrink-0 place-items-center rounded-lg text-xs ${index === activeIndex ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>{index === activeIndex && isPlaying ? <Music2 size={13} /> : index + 1}</span><span className="min-w-0"><span className="block truncate text-sm font-medium">{item.title}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.artist}</span></span></button>)}
       </div>
     </div>
 
     <div className="relative overflow-hidden rounded-3xl border border-border bg-card p-3 shadow-2xl shadow-black/20">
       <div ref={playerHost} className="pointer-events-none absolute inset-0 opacity-0" aria-hidden="true" />
-      <div className="relative flex gap-3"><div className="size-[5.25rem] shrink-0 overflow-hidden rounded-2xl bg-muted">{thumbnail ? <img src={thumbnail} alt="" className="size-full object-cover" /> : <span className="grid size-full place-items-center text-muted-foreground"><Music2 size={24} /></span>}</div><div className="min-w-0 flex-1 py-1"><p className="truncate text-[.94rem] font-semibold tracking-[-.025em]">{activeTrack?.title ?? "Your shared playlist"}</p><p className="mt-1 truncate text-xs text-muted-foreground">{activeTrack?.artist ?? "YouTube Music"}</p><input aria-label="Seek through the current track" type="range" min="0" max={Math.max(duration, 1)} step="0.1" value={Math.min(progress, duration)} onChange={(event) => { const seconds = Number(event.target.value); player.current?.seekTo(seconds, true); setProgress(seconds); }} onMouseUp={() => publishCurrentPlayback()} onTouchEnd={() => publishCurrentPlayback()} className="mt-3 h-1 w-full cursor-pointer accent-primary" /><div className="mt-1 flex justify-between text-[.64rem] text-muted-foreground"><span>{formatTime(progress)}</span><span>{formatTime(duration)}</span></div></div></div>
-      <div className="relative mt-2 flex items-center justify-between px-1"><button aria-label="Previous track" onClick={() => { player.current?.previousVideo(); window.setTimeout(() => publishCurrentPlayback(), 150); }} className="grid size-10 place-items-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"><SkipBack size={20} fill="currentColor" /></button><button aria-label={isPlaying ? "Pause" : "Play"} onClick={() => { if (isPlaying) player.current?.pauseVideo(); else player.current?.playVideo(); window.setTimeout(() => publishCurrentPlayback(), 100); }} className="grid size-13 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/25"><span>{isPlaying ? <Pause size={23} fill="currentColor" /> : <Play className="ml-0.5" size={23} fill="currentColor" />}</span></button><button aria-label="Next track" onClick={() => { player.current?.nextVideo(); window.setTimeout(() => publishCurrentPlayback(), 150); }} className="grid size-10 place-items-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"><SkipForward size={20} fill="currentColor" /></button></div>
+      <div className="relative flex gap-3"><div className="size-[5.25rem] shrink-0 overflow-hidden rounded-2xl bg-muted">{thumbnail ? <img src={thumbnail} alt="" className="size-full object-cover" /> : <span className="grid size-full place-items-center text-muted-foreground"><Music2 size={24} /></span>}</div><div className="min-w-0 flex-1 py-1"><p className="truncate text-[.94rem] font-semibold tracking-[-.025em]">{activeTrack?.title ?? "Your shared playlist"}</p><p className="mt-1 truncate text-xs text-muted-foreground">{activeTrack?.artist ?? "YouTube Music"}</p><input aria-label="Seek through the current track" type="range" min="0" max={Math.max(duration, 1)} step="0.1" value={Math.min(progress, duration)} disabled={!isHost} onChange={(event) => { const seconds = Number(event.target.value); player.current?.seekTo(seconds, true); setProgress(seconds); }} onMouseUp={() => publishCurrentPlayback()} onTouchEnd={() => publishCurrentPlayback()} className="mt-3 h-1 w-full cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-60" /><div className="mt-1 flex justify-between text-[.64rem] text-muted-foreground"><span>{formatTime(progress)}</span><span>{formatTime(duration)}</span></div></div></div>
+      <div className="relative mt-2 flex items-center justify-between px-1"><button aria-label="Previous track" disabled={!isHost} onClick={() => { player.current?.previousVideo(); window.setTimeout(() => publishCurrentPlayback(), 150); }} className="grid size-10 place-items-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"><SkipBack size={20} fill="currentColor" /></button><button aria-label={isPlaying ? "Pause" : "Play"} disabled={!isHost} onClick={() => { if (isPlaying) player.current?.pauseVideo(); else player.current?.playVideo(); window.setTimeout(() => publishCurrentPlayback(), 100); }} className="grid size-13 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/25 disabled:cursor-not-allowed disabled:opacity-60"><span>{isPlaying ? <Pause size={23} fill="currentColor" /> : <Play className="ml-0.5" size={23} fill="currentColor" />}</span></button><button aria-label="Next track" disabled={!isHost} onClick={() => { player.current?.nextVideo(); window.setTimeout(() => publishCurrentPlayback(), 150); }} className="grid size-10 place-items-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"><SkipForward size={20} fill="currentColor" /></button></div>
+      {!isHost && <p className="relative mt-2 text-center text-xs text-muted-foreground">The host controls playback.</p>}
       {syncError && <p role="alert" className="relative mt-2 text-xs text-destructive">{syncError}</p>}
     </div>
   </section>;

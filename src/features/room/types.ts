@@ -10,6 +10,7 @@ export type Room = {
   createdAt: number | object;
   expiresAt: number;
   status: "active";
+  hostId: string;
   playlistVersion: typeof PLAYLIST_VERSION;
   participants: Record<string, Participant>;
   playback: {

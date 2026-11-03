@@ -1,5 +1,5 @@
 import { signInAnonymously, type User } from "firebase/auth";
-import { get, onDisconnect, ref, runTransaction, serverTimestamp, set } from "firebase/database";
+import { get, onDisconnect, onValue, ref, runTransaction, serverTimestamp, set } from "firebase/database";
 import { getFirebaseClient } from "@/firebase/client";
 import { PLAYLIST_VERSION, ROOM_LIFETIME_MS, type Room } from "./types";
 
@@ -8,6 +8,11 @@ const ROOM_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/;
 let anonymousSignIn: Promise<User> | null = null;
 
 export class RoomError extends Error {}
+
+export function subscribeToRoom(roomId: string, callback: (room: Room | null) => void) {
+  const { database } = requireFirebase();
+  return onValue(ref(database, `rooms/${roomId}`), (snapshot) => callback(snapshot.val() as Room | null));
+}
 
 function requireFirebase() {
   const client = getFirebaseClient();
@@ -72,6 +77,7 @@ export async function createRoom() {
       createdAt: serverTimestamp(),
       expiresAt: now + ROOM_LIFETIME_MS,
       status: "active",
+      hostId: user.uid,
       playlistVersion: PLAYLIST_VERSION,
       participants: { [user.uid]: { joinedAt: serverTimestamp(), connected: true } },
       playback: { playlistIndex: 0, videoId: FIRST_PLAYLIST_VIDEO_ID, isPlaying: false, positionSeconds: 0, updatedAt: serverTimestamp(), revision: 0, updatedBy: user.uid },

@@ -5,12 +5,14 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { YouTubePlaylistPlayer } from "@/features/player/youtube-playlist-player";
+import { subscribeToRoom } from "./room-service";
 import { useRoom } from "./use-room";
 
 export function RoomScreen({ roomId }: { roomId: string }) {
   const router = useRouter();
   const { roomId: activeRoomId, participantId, joinRoom, roomStatus, error } = useRoom();
   const [copied, setCopied] = useState(false);
+  const [hostId, setHostId] = useState<string | null>(null);
   const admissionStarted = useRef(false);
   const isCreatorHandoff = roomStatus === "connected" && activeRoomId === roomId;
 
@@ -22,6 +24,15 @@ export function RoomScreen({ roomId }: { roomId: string }) {
     admissionStarted.current = true;
     void joinRoom(roomId).catch(() => undefined);
   }, [isCreatorHandoff, joinRoom, roomId]);
+
+  useEffect(() => {
+    if (roomStatus !== "connected") return;
+    return subscribeToRoom(roomId, (room) => {
+    // Rooms made before hostId existed safely treat the original playback
+    // writer as host; new rooms persist hostId directly.
+      setHostId(room?.hostId ?? room?.playback?.updatedBy ?? null);
+    });
+  }, [roomId, roomStatus]);
 
   async function shareRoom() {
     const url = window.location.href;
@@ -78,9 +89,10 @@ export function RoomScreen({ roomId }: { roomId: string }) {
           <span className="text-sm font-semibold tracking-[-.04em]">
             co<span className="font-normal text-muted-foreground">player</span>
           </span>
+          {participantId && hostId === participantId && <span className="rounded-full bg-primary/15 px-2 py-1 text-[.6rem] font-bold tracking-[.12em] text-primary">HOST</span>}
         </header>
         <section className="flex items-end justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[.14em] text-primary">Room connected</p><h1 className="mt-1 text-3xl font-semibold tracking-[-.07em]">Listen together.</h1></div><span className="flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-3 py-2 text-xs font-medium text-muted-foreground"><Users size={14} /> 2 people</span></section>
-        {participantId && <YouTubePlaylistPlayer roomId={roomId} participantId={participantId} />}
+        {participantId && hostId && <YouTubePlaylistPlayer roomId={roomId} participantId={participantId} isHost={hostId === participantId} />}
         <Button variant="outline" className="h-12 w-full rounded-xl" onClick={shareRoom}><Share2 size={17} /> {copied ? <><Check size={17} /> Link copied</> : "Invite a friend"}</Button>
       </div>
     </main>

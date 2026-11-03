@@ -27,6 +27,7 @@ export async function publishPlayback(roomId: string, uid: string, update: Playb
   if (!room || room.status !== "active" || room.expiresAt <= Date.now() || room.playlistVersion !== PLAYLIST_VERSION) {
     throw new Error("This room is no longer available for playback.");
   }
+  if (room.hostId && room.hostId !== uid) throw new Error("Only the room host can control playback.");
 
   const result = await runTransaction(ref(database, `rooms/${roomId}/playback`), (current: PlaybackState | null) => {
     // Realtime Database may invoke the first client transaction with an empty
